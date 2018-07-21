@@ -4,12 +4,16 @@ var app = express();
 var mysql = require('mysql');
 
 var http = require('request');
-
+var jwt = require('jsonwebtoken');
+var bcrypt = require('bcryptjs');
+var bodyParser = require('body-parser');
 
 
 var alarm = '0';
 var message = '';
 var emergency_id='0';
+
+var token_secret = 'ICEEMER_ENCO_20180721';
 
 var connection = mysql.createConnection({
   host: 'localhost',
@@ -19,22 +23,13 @@ var connection = mysql.createConnection({
 });
 
 
-
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-function Emergency_notification(){
-	
-}
-
-function topicSubscribe(token){
-	
-}
-
-function topicUnsubscribe(token){
-	
-}
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({
+    extended: true
+}));
 
 
 connection.connect(function(err) {
@@ -61,9 +56,25 @@ connection.query('select * from ice_setting',
 	
 });
 
+function isAuthenticated(req, res, next) {
+  var token = req.headers['x-access-token'];
+  if (!token) return res.status(401).send({ success: false, message: 'No token provided.' });
+  jwt.verify(token, token_secret, function(err, decoded) {
+    if (err) return res.status(500).send({ success: false, message: 'Failed to authenticate token.' });
+    
+	
+    if(req.body.Id==decoded.Id)
+      return next();
+  });
+  
+  return res.status(500).send({ success: false, message: 'Failed to authenticate'});
+}
+
+
 app.get('/', (req, res) => {
   res.send('OK')
 })
+
 
 app.post('/login', (req, res) => {
 	if(req.body.username && req.body.password && req.body.notiToken){
@@ -74,14 +85,20 @@ app.post('/login', (req, res) => {
 		+'left join FacilityTable c on a.FacilityId=c.Id WHERE username="'+req.body.username+'" '
 		+'and password="'+req.body.password+'" LIMIT 1', 
 		*/
-		connection.query('select * from ice_users WHERE username="'+req.body.username+'" '
+		connection.query('select `FirstName`, `LastName`, `EmployeeNumber`, `Phone`, `PhoneEmer`, `email`, `Company`, `Department`, `Building`, `Floor`, `DateOfBirth`, `Allergies`, `Bloodtype`, `Weight`, `Height`, `username`,`imgProfile`, `qrCode64` from ice_users WHERE username="'+req.body.username+'" '
 		+'and password="'+req.body.password+'" order by Id desc LIMIT 1',
 		function(err, results) {
 			if (err) throw err;
 			if(results.length > 0){
+				
+				var token = jwt.sign({ Id: results[0].Id }, token_secret, {
+				  expiresIn: 86400 // expires in 24 hours
+				});
+				
 				if(req.body.uuid == results[0].uuid){
 					results[0].success = true;
 					results[0].message = 'Logged in succesful.';
+					results[0].jwt_token = token;
 					res.send(JSON.stringify(results[0]));
 				}else /*if(results[0].uuid == '')*/{
 						
@@ -94,15 +111,15 @@ app.post('/login', (req, res) => {
 								results[0].message = 'Logged in succesful.';
 								
 								
-								http.post({
-									url: 'https://iid.googleapis.com/iid/v1/'+req.body.notiToken+'/rel/topics/ice', 
-									headers: {
-										'Content-Type': 'application/json',
-										'Authorization': 'key=AAAAupraLxs:APA91bGSdQ1qaLTb7oIpNAIGbMSySwxU3omr65z33zpXFLnHswKS-bJPzKsmesG8lXo1V0jnQFkUETcDWOTQr1CYbXlFuS8Ujcf7foSQW6jyyfxDW4cT63op5quySTnoGi-Ny5lZDr2XWQvsaMzL0UPTJUEH8C7X8g'
-									}
-								}, function(error, response, body) {
-									res.send(JSON.stringify(results[0]));
-								})
+							http.post({
+								url: 'https://iid.googleapis.com/iid/v1/'+req.body.notiToken+'/rel/topics/ice', 
+								headers: {
+									'Content-Type': 'application/json',
+									'Authorization': 'key=AAAAupraLxs:APA91bGSdQ1qaLTb7oIpNAIGbMSySwxU3omr65z33zpXFLnHswKS-bJPzKsmesG8lXo1V0jnQFkUETcDWOTQr1CYbXlFuS8Ujcf7foSQW6jyyfxDW4cT63op5quySTnoGi-Ny5lZDr2XWQvsaMzL0UPTJUEH8C7X8g'
+								}
+							}, function(error, response, body) {
+								res.send(JSON.stringify(results[0]));
+							})
 												
 								
 							//}else
@@ -124,7 +141,7 @@ app.post('/login', (req, res) => {
 
 })
 
-app.post('/changepass', (req, res) => {
+app.post('/changepass',isAuthenticated, (req, res) => {
 	if(req.body.Id && req.body.oldpass && req.body.newpass){
 		connection.query('update ice_users set password="'+req.body.newpass+'" WHERE Id='+req.body.Id+' '
 		+'and password="'+req.body.oldpass+'"', 
@@ -142,7 +159,7 @@ app.post('/changepass', (req, res) => {
 
 })
 
-app.post('/uploadProfile', (req, res) => {
+app.post('/uploadProfile',isAuthenticated, (req, res) => {
 	if(req.body.Id && req.body.img_profile){
 		connection.query('update ice_users set imgProfile="'+req.body.img_profile+'" WHERE Id='+req.body.Id+' ', 
 		function(err, results) {
@@ -159,7 +176,7 @@ app.post('/uploadProfile', (req, res) => {
 
 })
 
-app.post('/updateVital', (req, res) => {
+app.post('/updateVital',isAuthenticated, (req, res) => {
 	if(req.body.Id && req.body.department && req.body.building && req.body.floor && req.body.phone && req.body.phoneemer && req.body.email){
 		connection.query('update ice_users set Department="'+req.body.department+'",Building="'+req.body.building+'",Floor="'+req.body.floor+'",Phone="'+req.body.phone+'",PhoneEmer="'+req.body.phoneemer+'",email="'+req.body.email+'" WHERE Id='+req.body.Id+' ', 
 		function(err, results) {
@@ -176,7 +193,7 @@ app.post('/updateVital', (req, res) => {
 
 })
 
-app.post('/updateMedical', (req, res) => {
+app.post('/updateMedical',isAuthenticated, (req, res) => {
 	if(req.body.Id && req.body.dateofbirth && req.body.allergies && req.body.bloodtype && req.body.weight && req.body.height){
 		connection.query('update ice_users set DateOfBirth="'+req.body.dateofbirth+'",Allergies="'+req.body.allergies+'",BloodType="'+req.body.bloodtype
 		+'",Weight'+req.body.weight+'",Height="'+req.body.height
@@ -195,7 +212,7 @@ app.post('/updateMedical', (req, res) => {
 
 }) 
 
-app.post('/checkin', (req, res) => {
+app.post('/checkin',isAuthenticated, (req, res) => {
 	if(req.body.Id){
 		
 		if(emergency_id == '0')
@@ -219,7 +236,7 @@ app.post('/checkin', (req, res) => {
 })
 
 
-app.post('/emergency', (req, res) => {
+app.post('/emergency',isAuthenticated, (req, res) => {
 	if(req.body.Id){
 		connection.query('update ice_user_emergency set user_emer_status=2 WHERE emergency_id='+emergency_id+' and user_id='+req.body.Id+' ', 
 		function(err, results) {
@@ -237,7 +254,7 @@ app.post('/emergency', (req, res) => {
 }) 
 
 var count=0;
-app.post('/getAlarm', function(request, response){
+app.post('/getAlarm',isAuthenticated, function(request, response){
    response.send({'alarm' : emergency_id,'message' : message});    // echo the result back
 })
 
@@ -291,6 +308,7 @@ app.get('/setAlarm', function(request, response){
    
 })
 
+/*
 app.post('/subscribe', function(request, response){
 	if(req.body.token){
 		http.post({
@@ -324,7 +342,7 @@ app.post('/unsubscribe', function(request, response){
 		})
 	}
 })
-
+*/
 
 app.listen(8080, () => {
   console.log('Start server at port 8080.')

@@ -1,0 +1,23 @@
+[
+  {
+	"username" : "bird",
+	"password" : "password",
+    "id": "1",
+    "first_name": "EncoFname",
+	"last_name": "EncoLname",
+	"department": "Enco",
+	"building": "A",
+	"floor": "10"
+  }
+  ,
+  {
+	"username" : "jul",
+	"password" : "password",
+    "id": "2",
+    "first_name": "EncoFname2",
+	"last_name": "EncoLname2",
+	"department": "PTTEP",
+	"building": "B",
+	"floor": "11"
+  }
+]
